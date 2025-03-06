@@ -1,5 +1,8 @@
 import { Request, Response } from 'express';
 import * as authService from '../services/auth.service';
+import { body, validationResult } from 'express-validator';
+import User from '../models/user.model';
+import { logger } from '../utils/logger';
 
 /**
  * Send a verification code to the user's phone
@@ -93,32 +96,135 @@ export async function refreshToken(req: Request, res: Response): Promise<void> {
   }
 }
 
+// Validation rules
+export const registerValidation = [
+  body('email').isEmail().withMessage('Please provide a valid email address'),
+  body('password')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters long')
+    .matches(/[A-Z]/)
+    .withMessage('Password must contain at least one uppercase letter')
+    .matches(/[a-z]/)
+    .withMessage('Password must contain at least one lowercase letter')
+    .matches(/[0-9]/)
+    .withMessage('Password must contain at least one number'),
+  body('firstName').notEmpty().withMessage('First name is required'),
+  body('lastName').notEmpty().withMessage('Last name is required'),
+];
+
+export const loginValidation = [
+  body('email').isEmail().withMessage('Please provide a valid email address'),
+  body('password').notEmpty().withMessage('Password is required'),
+];
+
 /**
- * Get current user profile
- * GET /api/auth/me
+ * Register a new user
  */
-export async function getCurrentUser(req: Request, res: Response): Promise<void> {
+export const register = async (req: Request, res: Response) => {
   try {
-    // User ID should be added by authentication middleware
-    const userId = req.user?.id;
-    
-    if (!userId) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
+    // Check for validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
     }
-    
-    // Implement user service to get user by ID
-    // const user = await userService.getUserById(userId);
-    
-    res.status(200).json({
-      success: true,
+
+    const { email, password, firstName, lastName, phoneNumber } = req.body;
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User with this email already exists' });
+    }
+
+    // Create a new user
+    const user = new User({
+      email,
+      password,
+      firstName,
+      lastName,
+      phoneNumber,
+    });
+
+    await user.save();
+
+    // Generate JWT token
+    const token = user.generateAuthToken();
+
+    res.status(201).json({
+      message: 'User registered successfully',
+      token,
       user: {
-        id: userId,
-        // Include other user properties
-      }
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
     });
   } catch (error) {
-    console.error('Error in getCurrentUser controller:', error);
-    res.status(500).json({ error: 'Failed to get user profile' });
+    logger.error('Registration error:', error);
+    res.status(500).json({ message: 'Error registering user' });
   }
-} 
+};
+
+/**
+ * Login user
+ */
+export const login = async (req: Request, res: Response) => {
+  try {
+    // Check for validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    const { email, password } = req.body;
+
+    // Find user by email
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    // Check password
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    // Generate JWT token
+    const token = user.generateAuthToken();
+
+    res.status(200).json({
+      message: 'Login successful',
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
+    });
+  } catch (error) {
+    logger.error('Login error:', error);
+    res.status(500).json({ message: 'Error logging in' });
+  }
+};
+
+/**
+ * Get current user profile
+ */
+export const getCurrentUser = async (req: Request, res: Response) => {
+  try {
+    // The user is attached to the request object from the auth middleware
+    const user = await User.findById(req.user?._id).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json({ user });
+  } catch (error) {
+    logger.error('Get current user error:', error);
+    res.status(500).json({ message: 'Error fetching user profile' });
+  }
+}; 

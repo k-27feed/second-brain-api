@@ -1,35 +1,28 @@
-import { Router } from 'express';
+import express from 'express';
 import * as authController from '../controllers/auth.controller';
-import { authenticateJWT } from '../middleware/auth.middleware';
+import { authenticate } from '../middleware/auth.middleware';
 
-const router = Router();
-
-/**
- * @route   POST /api/auth/send-verification
- * @desc    Send verification code to phone number
- * @access  Public
- */
-router.post('/send-verification', authController.sendVerificationCode);
+const router = express.Router();
 
 /**
- * @route   POST /api/auth/verify-code
- * @desc    Verify phone number with code
+ * @route   POST /api/auth/register
+ * @desc    Register a new user
  * @access  Public
  */
-router.post('/verify-code', authController.verifyCode);
+router.post('/register', authController.registerValidation, authController.register);
 
 /**
- * @route   POST /api/auth/refresh-token
- * @desc    Refresh access token
+ * @route   POST /api/auth/login
+ * @desc    Login user
  * @access  Public
  */
-router.post('/refresh-token', authController.refreshToken);
+router.post('/login', authController.loginValidation, authController.login);
 
 /**
  * @route   GET /api/auth/me
  * @desc    Get current user profile
  * @access  Private
  */
-router.get('/me', authenticateJWT, authController.getCurrentUser);
+router.get('/me', authenticate, authController.getCurrentUser);
 
 export default router; 

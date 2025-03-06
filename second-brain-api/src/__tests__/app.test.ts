@@ -1,6 +1,9 @@
 import request from 'supertest';
 import express from 'express';
 
+// Import Jest types
+import '@types/jest';
+
 // Create a mock Express app for testing
 const app = express();
 

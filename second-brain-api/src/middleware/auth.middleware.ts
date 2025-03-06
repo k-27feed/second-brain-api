@@ -1,5 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../services/auth.service';
+import jwt from 'jsonwebtoken';
+import User, { IUser } from '../models/user.model';
+import { logger } from '../utils/logger';
 
 // Extend Express Request interface to include user
 declare global {
@@ -8,7 +11,7 @@ declare global {
       user?: {
         id: number;
         [key: string]: any;
-      };
+      } | IUser;
     }
   }
 }
@@ -79,4 +82,37 @@ export function optionalAuthJWT(req: Request, res: Response, next: NextFunction)
   
   // Proceed to next middleware
   next();
-} 
+}
+
+/**
+ * Authentication middleware to protect routes
+ */
+export const authenticate = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Get token from header
+    const authHeader = req.header('Authorization');
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ message: 'No token, authorization denied' });
+    }
+    
+    const token = authHeader.split(' ')[1];
+
+    // Verify token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key') as { _id: string };
+    
+    // Find user by ID
+    const user = await User.findById(decoded._id);
+    if (!user) {
+      return res.status(401).json({ message: 'Token is not valid' });
+    }
+    
+    // Attach user to request object
+    req.user = user;
+    
+    next();
+  } catch (error) {
+    logger.error('Authentication error:', error);
+    res.status(401).json({ message: 'Token is not valid' });
+  }
+}; 

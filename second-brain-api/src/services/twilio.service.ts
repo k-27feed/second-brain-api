@@ -2,6 +2,7 @@ import twilio, { Twilio } from 'twilio';
 import { AccessToken } from 'twilio';
 import { VoiceGrant } from 'twilio/lib/jwt/AccessToken';
 import env from '../config/env';
+import { logger } from '../utils/logger';
 
 class TwilioService {
   private client: Twilio;
@@ -25,21 +26,106 @@ class TwilioService {
   }
 
   /**
-   * Send verification code to phone number
+   * Send SMS message using Twilio
+   */
+  async sendSMS(to: string, body: string): Promise<string> {
+    try {
+      const message = await this.client.messages.create({
+        body,
+        from: this.phoneNumber,
+        to,
+      });
+
+      return message.sid;
+    } catch (error) {
+      logger.error('Twilio SMS error:', error);
+      throw new Error('Failed to send SMS message');
+    }
+  }
+
+  /**
+   * Make a phone call with text-to-speech
+   */
+  async makeCall(to: string, text: string): Promise<string> {
+    try {
+      // Create TwiML for the call
+      const twiml = `
+        <Response>
+          <Say voice="${env.twilio.ttsVoice}">${text}</Say>
+        </Response>
+      `;
+
+      // Make the call
+      const call = await this.client.calls.create({
+        twiml,
+        to,
+        from: this.phoneNumber,
+      });
+
+      return call.sid;
+    } catch (error) {
+      logger.error('Twilio call error:', error);
+      throw new Error('Failed to make phone call');
+    }
+  }
+
+  /**
+   * Send verification code via SMS
    */
   async sendVerificationCode(phoneNumber: string): Promise<string> {
     try {
-      const verification = await this.client.verify.v2
-        .services(this.verifyServiceSid)
-        .verifications.create({
-          to: phoneNumber,
-          channel: 'sms'
-        });
+      // Generate a random 6-digit code
+      const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
       
-      return verification.sid;
+      // Send the code via SMS
+      await this.sendSMS(
+        phoneNumber,
+        `Your Second Brain verification code is: ${verificationCode}`
+      );
+      
+      return verificationCode;
     } catch (error) {
-      console.error('Error sending verification code:', error);
+      logger.error('Verification code error:', error);
       throw new Error('Failed to send verification code');
+    }
+  }
+
+  /**
+   * Create a voice recording URL for transcription
+   */
+  createVoiceRecordingUrl(): { token: string; roomName: string } {
+    try {
+      // Create a unique room name
+      const roomName = `recording-${Date.now()}`;
+      
+      // Generate an access token
+      const AccessToken = twilio.jwt.AccessToken;
+      const VoiceGrant = AccessToken.VoiceGrant;
+      
+      // Create a voice grant
+      const voiceGrant = new VoiceGrant({
+        outgoingApplicationSid: this.verifyServiceSid,
+        incomingAllow: true,
+      });
+      
+      // Create an access token
+      const token = new AccessToken(
+        this.accountSid,
+        this.apiKey,
+        this.apiSecret,
+        { identity: `user-${Date.now()}` }
+      );
+      
+      // Add the voice grant to the token
+      token.addGrant(voiceGrant);
+      
+      return {
+        token: token.toJwt(),
+        roomName,
+      };
+    } catch (error) {
+      logger.error('Voice recording URL error:', error);
+      throw new Error('Failed to create voice recording URL');
     }
   }
 

@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import env from '../config/env';
+import { logger } from '../utils/logger';
 
 class OpenAIService {
   private client: OpenAI;
@@ -139,4 +140,83 @@ class OpenAIService {
 // Create a singleton instance
 const openaiService = new OpenAIService();
 
-export default openaiService; 
+export default openaiService;
+
+// Initialize OpenAI API
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
+
+/**
+ * Generate text completion using OpenAI
+ */
+export const generateCompletion = async (prompt: string, model = 'gpt-4'): Promise<string> => {
+  try {
+    const response = await openai.chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.7,
+      max_tokens: 1000,
+    });
+
+    return response.choices[0]?.message?.content || '';
+  } catch (error) {
+    logger.error('OpenAI completion error:', error);
+    throw new Error('Failed to generate text completion');
+  }
+};
+
+/**
+ * Summarize text using OpenAI
+ */
+export const summarizeText = async (text: string, model = 'gpt-4'): Promise<string> => {
+  try {
+    const prompt = `Please provide a concise summary of the following text:\n\n${text}`;
+    
+    const response = await openai.chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.5,
+      max_tokens: 300,
+    });
+
+    return response.choices[0]?.message?.content || '';
+  } catch (error) {
+    logger.error('OpenAI summarization error:', error);
+    throw new Error('Failed to summarize text');
+  }
+};
+
+/**
+ * Extract key information from text
+ */
+export const extractKeyInfo = async (text: string, model = 'gpt-4'): Promise<Record<string, string>> => {
+  try {
+    const prompt = `
+      Extract and structure the following key information from this text as JSON:
+      - Main topics
+      - Key points
+      - Action items (if any)
+      - Questions raised (if any)
+      
+      Text:
+      ${text}
+      
+      Format your response as valid JSON with these fields.
+    `;
+    
+    const response = await openai.chat.completions.create({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.3,
+      max_tokens: 500,
+      response_format: { type: 'json_object' },
+    });
+    
+    const content = response.choices[0]?.message?.content || '{}';
+    return JSON.parse(content);
+  } catch (error) {
+    logger.error('OpenAI key info extraction error:', error);
+    throw new Error('Failed to extract key information');
+  }
+}; 

@@ -1,67 +1,102 @@
-import { query } from '../db';
+import mongoose, { Document, Schema } from 'mongoose';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
 
-export interface User {
-  id: number;
-  phone_number: string;
-  name: string | null;
-  created_at: Date;
-  updated_at: Date;
+// Define the user document interface
+export interface IUser extends Document {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+  phoneNumber?: string;
+  isVerified: boolean;
+  verificationCode?: string;
+  resetPasswordToken?: string;
+  resetPasswordExpires?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+  comparePassword(candidatePassword: string): Promise<boolean>;
+  generateAuthToken(): string;
 }
 
-export interface CreateUserInput {
-  phone_number: string;
-  name?: string;
-}
+// Define the user schema
+const userSchema = new Schema<IUser>(
+  {
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      lowercase: true,
+    },
+    password: {
+      type: String,
+      required: true,
+      minlength: 8,
+    },
+    firstName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    lastName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+    phoneNumber: {
+      type: String,
+      trim: true,
+    },
+    isVerified: {
+      type: Boolean,
+      default: false,
+    },
+    verificationCode: {
+      type: String,
+    },
+    resetPasswordToken: {
+      type: String,
+    },
+    resetPasswordExpires: {
+      type: Date,
+    },
+  },
+  {
+    timestamps: true,
+  }
+);
 
-/**
- * Find user by ID
- */
-export async function findById(id: number): Promise<User | null> {
-  const result = await query('SELECT * FROM users WHERE id = $1', [id]);
-  return result.rows.length ? result.rows[0] : null;
-}
+// Hash the password before saving
+userSchema.pre('save', async function (next) {
+  const user = this;
+  if (!user.isModified('password')) return next();
 
-/**
- * Find user by phone number
- */
-export async function findByPhoneNumber(phoneNumber: string): Promise<User | null> {
-  const result = await query('SELECT * FROM users WHERE phone_number = $1', [phoneNumber]);
-  return result.rows.length ? result.rows[0] : null;
-}
+  try {
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(user.password, salt);
+    next();
+  } catch (error) {
+    next(error as Error);
+  }
+});
 
-/**
- * Create a new user
- */
-export async function create(userData: CreateUserInput): Promise<User> {
-  const { phone_number, name } = userData;
-  
-  const result = await query(
-    'INSERT INTO users (phone_number, name) VALUES ($1, $2) RETURNING *',
-    [phone_number, name || null]
+// Method to compare passwords
+userSchema.methods.comparePassword = async function (candidatePassword: string): Promise<boolean> {
+  return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Method to generate JWT token
+userSchema.methods.generateAuthToken = function (): string {
+  const user = this;
+  const token = jwt.sign(
+    { _id: user._id.toString() },
+    process.env.JWT_SECRET || 'your-secret-key',
+    { expiresIn: process.env.JWT_EXPIRATION || '24h' }
   );
-  
-  return result.rows[0];
-}
+  return token;
+};
 
-/**
- * Update user information
- */
-export async function update(id: number, userData: Partial<User>): Promise<User | null> {
-  // Extract fields that can be updated
-  const { name } = userData;
-  
-  const result = await query(
-    'UPDATE users SET name = COALESCE($1, name), updated_at = CURRENT_TIMESTAMP WHERE id = $2 RETURNING *',
-    [name, id]
-  );
-  
-  return result.rows.length ? result.rows[0] : null;
-}
-
-/**
- * Delete a user
- */
-export async function remove(id: number): Promise<boolean> {
-  const result = await query('DELETE FROM users WHERE id = $1', [id]);
-  return result.rowCount > 0;
-} 
+// Create and export the User model
+const User = mongoose.model<IUser>('User', userSchema);
+export default User; 
